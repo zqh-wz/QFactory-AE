@@ -1,0 +1,74 @@
+{
+    "4-1-16384-16384-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "eager",
+        "l2cache_a": true,
+        "l2cache_b": true,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 128,
+            "NUM_ELM": 32
+        }
+    },
+    "4-1-27648-5120-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": true,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 32,
+            "NUM_ELM": 32
+        }
+    },
+    "4-1-5120-13824-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "eager",
+        "l2cache_a": true,
+        "l2cache_b": true,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 64,
+            "NUM_ELM": 8
+        }
+    },
+    "2-1-16384-16384-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": true,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 8,
+            "BLOCK_SIZE": 64,
+            "NUM_ELM": 32
+        }
+    },
+    "2-1-27648-5120-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "eager",
+        "l2cache_a": true,
+        "l2cache_b": true,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 32,
+            "NUM_ELM": 16
+        }
+    },
+    "2-1-5120-13824-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": true,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 4,
+            "BLOCK_SIZE": 32,
+            "NUM_ELM": 32
+        }
+    }
+}

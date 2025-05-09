@@ -1,0 +1,218 @@
+{
+    "8-1-1024-1024-128": {
+        "parallel_strategy": "row",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 1,
+            "BLOCK_SIZE": 128,
+            "NUM_ELM": 8
+        }
+    },
+    "8-1-2048-2048-128": {
+        "parallel_strategy": "row",
+        "decode_strategy": "eager",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 1,
+            "BLOCK_SIZE": 128,
+            "NUM_ELM": 16
+        }
+    },
+    "8-1-4096-4096-128": {
+        "parallel_strategy": "row",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 1,
+            "BLOCK_SIZE": 256,
+            "NUM_ELM": 8
+        }
+    },
+    "8-1-8192-8192-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "eager",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 256,
+            "NUM_ELM": 32
+        }
+    },
+    "8-1-16384-16384-128": {
+        "parallel_strategy": "row",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 1,
+            "BLOCK_SIZE": 256,
+            "NUM_ELM": 16
+        }
+    },
+    "8-1-32768-32768-128": {
+        "parallel_strategy": "row",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": true,
+        "tiling_configs": {
+            "BLOCK_N": 1,
+            "BLOCK_SIZE": 256,
+            "NUM_ELM": 8
+        }
+    },
+    "4-1-1024-1024-128": {
+        "parallel_strategy": "row",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 128,
+            "NUM_ELM": 8
+        }
+    },
+    "4-1-2048-2048-128": {
+        "parallel_strategy": "row",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 1,
+            "BLOCK_SIZE": 128,
+            "NUM_ELM": 16
+        }
+    },
+    "4-1-4096-4096-128": {
+        "parallel_strategy": "row",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 256,
+            "NUM_ELM": 16
+        }
+    },
+    "4-1-8192-8192-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "eager",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 256,
+            "NUM_ELM": 32
+        }
+    },
+    "4-1-16384-16384-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "eager",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 64,
+            "NUM_ELM": 32
+        }
+    },
+    "4-1-32768-32768-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 4,
+            "BLOCK_SIZE": 256,
+            "NUM_ELM": 32
+        }
+    },
+    "2-1-1024-1024-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 64,
+            "NUM_ELM": 16
+        }
+    },
+    "2-1-2048-2048-128": {
+        "parallel_strategy": "row",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 128,
+            "NUM_ELM": 16
+        }
+    },
+    "2-1-4096-4096-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 2,
+            "BLOCK_SIZE": 64,
+            "NUM_ELM": 32
+        }
+    },
+    "2-1-8192-8192-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": false,
+        "tiling_configs": {
+            "BLOCK_N": 8,
+            "BLOCK_SIZE": 128,
+            "NUM_ELM": 32
+        }
+    },
+    "2-1-16384-16384-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": true,
+        "tiling_configs": {
+            "BLOCK_N": 8,
+            "BLOCK_SIZE": 64,
+            "NUM_ELM": 32
+        }
+    },
+    "2-1-32768-32768-128": {
+        "parallel_strategy": "col",
+        "decode_strategy": "deferred",
+        "l2cache_a": true,
+        "l2cache_b": false,
+        "smem_quant": true,
+        "tiling_configs": {
+            "BLOCK_N": 4,
+            "BLOCK_SIZE": 64,
+            "NUM_ELM": 32
+        }
+    }
+}

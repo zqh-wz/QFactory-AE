@@ -1,0 +1,77 @@
+diff --git a/vllm/model_executor/layers/quantization/gptq_bitblas.py b/vllm/model_executor/layers/quantization/gptq_bitblas.py
+index 9d80e9cb..b4d8e8ce 100644
+--- a/vllm/model_executor/layers/quantization/gptq_bitblas.py
++++ b/vllm/model_executor/layers/quantization/gptq_bitblas.py
+@@ -33,6 +33,7 @@ class GPTQBitBLASConfig(QuantizationConfig):
+ 
+     # (num_bits, is_sym) -> quant_type
+     TYPE_MAP = {
++        (2, True): scalar_types.uint2b2,
+         (4, True): scalar_types.uint4b8,
+         (8, True): scalar_types.uint8b128,
+     }
+diff --git a/vllm/model_executor/layers/quantization/kernels/bitblas.py b/vllm/model_executor/layers/quantization/kernels/bitblas.py
+index 52ba9346..81153794 100644
+--- a/vllm/model_executor/layers/quantization/kernels/bitblas.py
++++ b/vllm/model_executor/layers/quantization/kernels/bitblas.py
+@@ -260,7 +260,7 @@ class BitBLASLinearKernel(MPLinearKernel):
+         if bitblas_matmul is None:
+             bitblas_matmul = Matmul(config,
+                                     target=BITBLAS_TARGET,
+-                                    enable_tuning=False)
++                                    enable_tuning=False, backend="tir")
+             if enable_tuning:
+                 bitblas_matmul.hardware_aware_finetune(topk=20)
+                 global_operator_cache.add(config, bitblas_matmul)
+diff --git a/vllm/model_executor/layers/quantization/utils/bitblas_utils.py b/vllm/model_executor/layers/quantization/utils/bitblas_utils.py
+index 5384cca2..62e2f32c 100644
+--- a/vllm/model_executor/layers/quantization/utils/bitblas_utils.py
++++ b/vllm/model_executor/layers/quantization/utils/bitblas_utils.py
+@@ -14,7 +14,7 @@ GPTQ_BITBLAS_MAX_PARALLEL = 16
+ BITBLAS_SUPPORTED_GROUP_SIZES = [-1, 32, 64, 128]
+ 
+ # For dynamic shape code generation
+-BITBLAS_OPTIMIZE_FEATURES = [1, 16, 32, 64, 128, 256, 512, 1024]
++BITBLAS_OPTIMIZE_FEATURES = [1]#, 16, 32, 64, 128, 256, 512, 1024]
+ # If want to enable high performance for contiguous batching
+ # Please use the following values
+ BITBLAS_OPTIMIZE_FEATURES_CONTIGUOUS = [16, 32, 64, 128, 256, 512, 1024]
+@@ -42,7 +42,7 @@ def query_bitblas_supported_quant_types(has_zp: bool,
+         # GPTQ style, unsigned + symmetric bias
+         # TODO: once fp8_bitblas is merged into "gptq_bitblas" we should be able
+         #  to add `scalar_types.float8_e4m3fn` here
+-        return [scalar_types.uint4b8, scalar_types.uint8b128]
++        return [scalar_types.uint2b2, scalar_types.uint4b8, scalar_types.uint8b128]
+ 
+ 
+ def _check_bitblas_supported(
+diff --git a/vllm/model_executor/models/llama.py b/vllm/model_executor/models/llama.py
+index 2902e699..a91ba35b 100644
+--- a/vllm/model_executor/models/llama.py
++++ b/vllm/model_executor/models/llama.py
+@@ -591,9 +591,9 @@ class LlamaForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
+             skip_prefixes=(["lm_head."]
+                            if self.config.tie_word_embeddings else None),
+         )
+-        return loader.load_weights(
+-            self.maybe_remap_mistral(name, loaded_weight)
+-            for name, loaded_weight in weights)
++        # return loader.load_weights(
++        #     self.maybe_remap_mistral(name, loaded_weight)
++        #     for name, loaded_weight in weights)
+ 
+     def load_kv_cache_scales(self, quantization_param_path: str) -> None:
+         self.model.load_kv_cache_scales(quantization_param_path)
+diff --git a/vllm/model_executor/models/qwen2.py b/vllm/model_executor/models/qwen2.py
+index 3ce4eb58..6dab00b9 100644
+--- a/vllm/model_executor/models/qwen2.py
++++ b/vllm/model_executor/models/qwen2.py
+@@ -503,7 +503,7 @@ class Qwen2ForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
+             skip_prefixes=(["lm_head."]
+                            if self.config.tie_word_embeddings else None),
+         )
+-        return loader.load_weights(weights)
++        # return loader.load_weights(weights)
+ 
+ 
+ class Qwen2EmbeddingModel(nn.Module, SupportsLoRA, SupportsPP):

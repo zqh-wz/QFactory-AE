@@ -1,0 +1,244 @@
+diff --git a/python_only_dev.py b/python_only_dev.py
+index 1ca0f5c30..46cb027b1 100644
+--- a/python_only_dev.py
++++ b/python_only_dev.py
+@@ -18,7 +18,7 @@ args = parser.parse_args()
+ 
+ # cannot directly `import vllm` , because it will try to
+ # import from the current directory
+-output = subprocess.run([sys.executable, "-m", "pip", "show", "vllm"],
++output = subprocess.run(["uv", "pip", "show", "vllm"],
+                         capture_output=True)
+ 
+ assert output.returncode == 0, "vllm is not installed"
+diff --git a/vllm/model_executor/layers/linear.py b/vllm/model_executor/layers/linear.py
+index 94f30412e..8052dda03 100644
+--- a/vllm/model_executor/layers/linear.py
++++ b/vllm/model_executor/layers/linear.py
+@@ -27,7 +27,7 @@ WEIGHT_LOADER_V2_SUPPORTED = [
+     "AWQLinearMethod", "GPTQMarlinLinearMethod", "Fp8LinearMethod",
+     "MarlinLinearMethod", "QQQLinearMethod", "GPTQMarlin24LinearMethod",
+     "TPUInt8LinearMethod", "GPTQLinearMethod", "FBGEMMFp8LinearMethod",
+-    "ModelOptFp8LinearMethod", "IPEXAWQLinearMethod"
++    "ModelOptFp8LinearMethod", "IPEXAWQLinearMethod", "QFactoryLinearMethod"
+ ]
+ 
+ 
+diff --git a/vllm/model_executor/layers/quantization/__init__.py b/vllm/model_executor/layers/quantization/__init__.py
+index da841d052..573ad08f1 100644
+--- a/vllm/model_executor/layers/quantization/__init__.py
++++ b/vllm/model_executor/layers/quantization/__init__.py
+@@ -28,6 +28,7 @@ from vllm.model_executor.layers.quantization.neuron_quant import (
+     NeuronQuantConfig)
+ from vllm.model_executor.layers.quantization.qqq import QQQConfig
+ from vllm.model_executor.layers.quantization.tpu_int8 import Int8TpuConfig
++from vllm.model_executor.layers.quantization.qfactory import QFactoryConfig
+ 
+ QUANTIZATION_METHODS: Dict[str, Type[QuantizationConfig]] = {
+     "aqlm": AQLMConfig,
+@@ -51,6 +52,7 @@ QUANTIZATION_METHODS: Dict[str, Type[QuantizationConfig]] = {
+     "experts_int8": ExpertsInt8Config,
+     "neuron_quant": NeuronQuantConfig,
+     "ipex": IPEXConfig,
++    "qfactory": QFactoryConfig,
+ }
+ 
+ 
+diff --git a/vllm/model_executor/layers/quantization/qfactory.py b/vllm/model_executor/layers/quantization/qfactory.py
+new file mode 100644
+index 000000000..3b7d5668a
+--- /dev/null
++++ b/vllm/model_executor/layers/quantization/qfactory.py
+@@ -0,0 +1,162 @@
++from typing import Any, Dict, List, Optional
++
++import torch
++
++from vllm.logger import init_logger
++from vllm.model_executor.layers.linear import LinearBase, LinearMethodBase
++from vllm.model_executor.layers.quantization.base_config import QuantizationConfig
++from vllm.model_executor.parameter import PackedvLLMParameter, RowvLLMParameter, GroupQuantScaleParameter
++
++from qfactory import QLinear
++
++logger = init_logger(__name__)
++
++class QFactoryConfig(QuantizationConfig):
++    """Config class for QFactory"""
++
++    def __init__(
++        self,
++        weight_bits: int,
++        group_size: int,
++    ):
++        self.weight_bits = weight_bits
++        self.pack_factor = 32 // weight_bits
++        self.group_size = group_size
++
++    @classmethod
++    def from_config(cls, config: Dict[str, Any]) -> "QFactoryConfig":
++        weight_bits = cls.get_from_keys(config, ["bits"])
++        group_size = cls.get_from_keys(config, ["group_size"])
++        return cls(weight_bits, group_size)
++
++    @classmethod
++    def override_quantization_method(cls, hf_quant_cfg, user_quant) -> Optional[str]:
++        if user_quant == "qfactory":
++            logger.warning("Using qfactory kernel.")
++            return user_quant
++        return None
++
++    @classmethod
++    def get_min_capability(cls) -> int:
++        return 70
++
++    def get_supported_act_dtypes(self) -> List[torch.dtype]:
++        return [torch.float16]
++
++    def get_quant_method(self, layer: torch.nn.Module,
++                         prefix: str) -> Optional["QFactoryLinearMethod"]:
++        if isinstance(layer, LinearBase):
++            return QFactoryLinearMethod(self, prefix)
++        return None
++
++    def get_name(self) -> str:
++        return "qfactory"
++
++    @staticmethod
++    def get_config_filenames() -> List[str]:
++        """List of filenames to search for in the model directory."""
++        raise NotImplementedError
++
++
++class QFactoryLinearMethod(LinearMethodBase):
++    """Linear method for QFactory.
++    Args:
++        quant_config: The QFactory quantization config.
++    """
++
++    def __init__(self, quant_config: QFactoryConfig, prefix: str):
++        self.quant_config = quant_config
++        self.prefix = prefix
++
++    def create_weights(
++        self,
++        layer: torch.nn.Module,
++        input_size_per_partition: int,
++        output_partition_sizes: List[int],
++        input_size: int,
++        output_size: int,
++        params_dtype: torch.dtype,
++        **extra_weight_attrs
++    ):
++        output_size_per_partition = sum(output_partition_sizes)
++        weight_loader = extra_weight_attrs.get("weight_loader")
++
++        qweight = PackedvLLMParameter(
++            data=torch.empty(
++                input_size_per_partition // self.quant_config.pack_factor,
++                output_size_per_partition,
++                dtype=torch.int32,
++            ),
++            input_dim=0,
++            output_dim=1,
++            packed_dim=0,
++            packed_factor=self.quant_config.pack_factor,
++            weight_loader=weight_loader
++        )
++
++        g_idx = RowvLLMParameter(
++            data=torch.empty(
++                input_size_per_partition,
++                dtype=torch.int32,
++            ),
++            input_dim=0,
++            weight_loader=weight_loader
++        )
++
++        scales_and_zp_size = input_size_per_partition // self.quant_config.group_size
++
++        scales = GroupQuantScaleParameter(
++            data=torch.empty(
++                scales_and_zp_size,
++                output_size_per_partition,
++                dtype=params_dtype,
++            ),
++            input_dim=0,
++            output_dim=1,
++            weight_loader=weight_loader
++        )
++        qzeros = PackedvLLMParameter(
++            data=torch.empty(
++                scales_and_zp_size,
++                output_size_per_partition // self.quant_config.pack_factor,
++                dtype=torch.int32,
++            ),
++            input_dim=0,
++            output_dim=1,
++            packed_dim=1,
++            packed_factor=self.quant_config.pack_factor,
++            weight_loader=weight_loader
++        )
++
++        layer.register_parameter("qweight", qweight)
++        layer.register_parameter("g_idx", g_idx)
++        layer.register_parameter("scales", scales)
++        layer.register_parameter("qzeros", qzeros)
++
++    def process_weights_after_loading(self, layer: torch.nn.Module):
++        input_size = layer.qweight.shape[0] * self.quant_config.pack_factor
++        output_size = layer.qweight.shape[1]
++
++        layer.qlinear = QLinear.empty(
++            M=1,
++            K=input_size,
++            N=output_size,
++            NBITS=self.quant_config.weight_bits,
++            GS=self.quant_config.group_size,
++            sym=True,
++            compile_flags={"enable_transform": True, "enable_schedule": False, "enable_lower": True},
++        )
++
++        layer.register_parameter("qweight", None)
++        layer.register_parameter("qzeros", None)
++
++    def apply(self,
++              layer: torch.nn.Module,
++              x: torch.Tensor,
++              bias: Optional[torch.Tensor] = None) -> torch.Tensor:
++        """Apply the weights in layer to the input tensor.
++        Expects create_weights to have been called before on the layer."""
++        out = layer.qlinear(x)
++        if bias is not None:
++            out.add_(bias)
++        return out
+diff --git a/vllm/model_executor/models/llama.py b/vllm/model_executor/models/llama.py
+index e53631ef1..3149cf0d9 100644
+--- a/vllm/model_executor/models/llama.py
++++ b/vllm/model_executor/models/llama.py
+@@ -583,9 +583,9 @@ class LlamaForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
+             skip_prefixes=(["lm_head."]
+                            if self.config.tie_word_embeddings else None),
+         )
+-        loader.load_weights(
+-            self.maybe_remap_mistral(name, loaded_weight)
+-            for name, loaded_weight in weights)
++        # loader.load_weights(
++        #     self.maybe_remap_mistral(name, loaded_weight)
++        #     for name, loaded_weight in weights)
+ 
+     def load_kv_cache_scales(self, quantization_param_path: str) -> None:
+         self.model.load_kv_cache_scales(quantization_param_path)
+diff --git a/vllm/model_executor/models/qwen2.py b/vllm/model_executor/models/qwen2.py
+index 431e397e1..c1a8bbf2c 100644
+--- a/vllm/model_executor/models/qwen2.py
++++ b/vllm/model_executor/models/qwen2.py
+@@ -500,7 +500,7 @@ class Qwen2ForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
+             skip_prefixes=(["lm_head."]
+                            if self.config.tie_word_embeddings else None),
+         )
+-        loader.load_weights(weights)
++        # loader.load_weights(weights)
+ 
+ 
+ class Qwen2EmbeddingModel(nn.Module, SupportsLoRA, SupportsPP):

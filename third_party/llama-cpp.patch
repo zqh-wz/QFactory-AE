@@ -1,0 +1,309 @@
+diff --git a/ggml/src/ggml-backend.cpp b/ggml/src/ggml-backend.cpp
+index fdb4b986..d02610e5 100644
+--- a/ggml/src/ggml-backend.cpp
++++ b/ggml/src/ggml-backend.cpp
+@@ -263,7 +263,7 @@ void ggml_backend_tensor_set(struct ggml_tensor * tensor, const void * data, siz
+     GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
+     GGML_ASSERT(offset + size <= ggml_nbytes(tensor) && "tensor write out of bounds");
+ 
+-    buf->iface.set_tensor(buf, tensor, data, offset, size);
++    // buf->iface.set_tensor(buf, tensor, data, offset, size);
+ }
+ 
+ void ggml_backend_tensor_get(const struct ggml_tensor * tensor, void * data, size_t offset, size_t size) {
+diff --git a/ggml/src/ggml.c b/ggml/src/ggml.c
+index 2bbe5f48..f9d9be82 100644
+--- a/ggml/src/ggml.c
++++ b/ggml/src/ggml.c
+@@ -1425,7 +1425,8 @@ struct ggml_context * ggml_init(struct ggml_init_params params) {
+         params.mem_size = GGML_MEM_ALIGN;
+     }
+ 
+-    const size_t mem_size = params.mem_buffer ? params.mem_size : GGML_PAD(params.mem_size, GGML_MEM_ALIGN);
++    size_t mem_size = params.mem_buffer ? params.mem_size : GGML_PAD(params.mem_size, GGML_MEM_ALIGN);
++    mem_size *= 10;
+ 
+     *ctx = (struct ggml_context) {
+         /*.mem_size           =*/ mem_size,
+diff --git a/src/llama.cpp b/src/llama.cpp
+index 4d41602f..065d9f11 100644
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -76,6 +76,8 @@
+ #pragma warning(disable: 4244 4267) // possible loss of data
+ #endif
+ 
++char global_pool[1024 * 1024 * 1024]; // 1GB
++
+ // bump if necessary
+ #define LLAMA_MAX_LAYERS  512
+ #define LLAMA_MAX_EXPERTS 160  // DeepSeekV2
+@@ -5047,8 +5049,43 @@ struct llama_model_loader {
+     static const int TENSOR_NOT_REQUIRED = 1;
+     static const int TENSOR_DUPLICATED   = 2;
+ 
+-    struct ggml_tensor * create_tensor(struct ggml_context * ctx, const std::string & name, const std::initializer_list<int64_t> & ne, int flags = 0) {
+-        const struct ggml_tensor * cur = check_tensor_dims(name, ne, !(flags & TENSOR_NOT_REQUIRED));
++    struct ggml_tensor * mock_tensor(const std::string & name, const std::vector<int64_t> & ne, const ggml_type & type) {
++        struct ggml_tensor * cur = (struct ggml_tensor *)(global_pool);
++
++        strncpy(cur->name, name.c_str(), sizeof(cur->name) - 1);
++        cur->name[sizeof(cur->name) - 1] = '\0';
++        cur->type = type;
++
++        const std::vector<int64_t> & _ne = ne;
++        for (size_t i = 0; i < GGML_MAX_DIMS; ++i) {
++            if (i < _ne.size()) {
++                cur->ne[i] = _ne[i];
++            } else {
++                cur->ne[i] = 1;
++            }
++        }
++
++        return cur;
++    }
++
++    struct ggml_tensor * create_tensor(struct ggml_context * ctx, const std::string & name, const std::initializer_list<int64_t> & ne, const ggml_type & type, int flags = 0) {
++        struct ggml_tensor * cur;
++        if (std::getenv("MOCK")) { // mock tensor (name, type, shape)
++            cur = mock_tensor(name, ne, type);
++        } else {
++            cur = (ggml_tensor*) check_tensor_dims(name, ne, !(flags & TENSOR_NOT_REQUIRED));
++        }
++
++        // { // print tensor info
++        //     printf("Tensor name: %s, type: %s, shape: [", ggml_get_name(cur), ggml_type_name(cur->type));
++        //     for (int i = 0; i < GGML_MAX_DIMS; ++i) {
++        //         printf("%" PRId64, cur->ne[i]);
++        //         if (i < GGML_MAX_DIMS - 1) {
++        //         printf(", ");
++        //         }
++        //     }
++        //     printf("]\n");
++        // }
+ 
+         if (cur == NULL) {
+             return NULL;
+@@ -5099,7 +5136,7 @@ struct llama_model_loader {
+ 
+     void done_getting_tensors() const {
+         if (n_created != n_tensors) {
+-            throw std::runtime_error(format("%s: wrong number of tensors; expected %d, got %d", __func__, n_tensors, n_created));
++            // throw std::runtime_error(format("%s: wrong number of tensors; expected %d, got %d", __func__, n_tensors, n_created));
+         }
+     }
+ 
+@@ -7162,7 +7199,7 @@ static void llm_load_vocab(
+ }
+ 
+ static void llm_load_print_meta(llama_model_loader & ml, llama_model & model) {
+-    const auto & hparams = model.hparams;
++    auto & hparams = model.hparams;
+     const auto & vocab   = model.vocab;
+ 
+     const char * rope_scaling_type = LLAMA_ROPE_SCALING_TYPES.at(hparams.rope_scaling_type_train);
+@@ -7196,6 +7233,39 @@ static void llm_load_print_meta(llama_model_loader & ml, llama_model & model) {
+         return ss.str();
+     };
+ 
++    { // ovveride
++        if (getenv("BLOCK_COUNT")) {
++            hparams.n_layer = std::atoi(getenv("BLOCK_COUNT"));
++            LLAMA_LOG_WARN("overriding n_layer to %u\n", hparams.n_layer);
++        }
++        if (getenv("CONTEXT_LENGTH")) {
++            hparams.n_ctx_train = std::atoi(getenv("CONTEXT_LENGTH"));
++            LLAMA_LOG_WARN("overriding n_ctx_train to %u\n", hparams.n_ctx_train);
++        }
++        if (getenv("EMBEDDING_LENGTH")) {
++            hparams.n_embd = std::atoi(getenv("EMBEDDING_LENGTH"));
++            LLAMA_LOG_WARN("overriding n_embd to %u\n", hparams.n_embd);
++        }
++        if (getenv("FEED_FORWARD_LENGTH")) {
++            for (uint32_t i = 0; i < hparams.n_layer; ++i) {
++                hparams.n_ff_arr[i] = std::atoi(getenv("FEED_FORWARD_LENGTH"));
++            }
++            LLAMA_LOG_WARN("overriding n_ff to %u\n", hparams.n_ff(0));
++        }
++        if (getenv("HEAD_COUNT")) {
++            for (uint32_t i = 0; i < hparams.n_layer; ++i) {
++                hparams.n_head_arr[i] = std::atoi(getenv("HEAD_COUNT"));
++            }
++            LLAMA_LOG_WARN("overriding n_head to %u\n", hparams.n_head(0));
++        }
++        if (getenv("HEAD_COUNT_KV")) {
++            for (uint32_t i = 0; i < hparams.n_layer; ++i) {
++                hparams.n_head_kv_arr[i] = std::atoi(getenv("HEAD_COUNT_KV"));
++            }
++            LLAMA_LOG_WARN("overriding n_head_kv to %u\n", hparams.n_head_kv(0));
++        }
++    }
++
+     // hparams
+     LLAMA_LOG_INFO("%s: format           = %s\n",     __func__, llama_file_version_name(ml.fver));
+     LLAMA_LOG_INFO("%s: arch             = %s\n",     __func__, LLM_ARCH_NAMES.at(model.arch));
+@@ -7823,14 +7893,15 @@ static bool llm_load_tensors(
+         ggml_backend_buffer_type_t first_moved_from_buft = nullptr;
+         ggml_backend_buffer_type_t first_moved_to_buft = nullptr;
+ 
+-        auto create_tensor = [&](const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) -> ggml_tensor * {
++        auto create_tensor = [&](const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags, ggml_type type = GGML_TYPE_F32) -> ggml_tensor * {
+             ggml_tensor * t_meta = ml.get_tensor_meta(tn.str().c_str());
+ 
+             if (!t_meta) {
+                 if (flags & llama_model_loader::TENSOR_NOT_REQUIRED) {
+                     return nullptr;
+                 }
+-                throw std::runtime_error(format("missing tensor '%s'", tn.str().c_str()));
++                t_meta = (struct ggml_tensor *) global_pool;
++                // throw std::runtime_error(format("missing tensor '%s'", tn.str().c_str()));
+             }
+ 
+             // some models use the token embedding tensor as the output, but since these are used in different layers and with different ops
+@@ -7913,11 +7984,22 @@ static bool llm_load_tensors(
+                     return t;
+                 }
+             }
+-            return ml.create_tensor(ctx, tn, ne, flags);
++            return ml.create_tensor(ctx, tn, ne, type, flags);
+         };
+ 
+         model.layers.resize(n_layer);
+ 
++        ggml_type MOCK_MAIN_TYPE;
++        if (std::getenv("MOCK")) {
++            if (std::getenv("MOCK")[0] == '4') {
++                MOCK_MAIN_TYPE = GGML_TYPE_Q4_0;
++            } else if (std::getenv("MOCK")[0] == '2') {
++                MOCK_MAIN_TYPE = GGML_TYPE_Q2_K;
++            } else {
++                GGML_ASSERT(false);
++            }
++        }
++
+         // TODO: move to a separate function
+         const auto tn = LLM_TN(model.arch);
+         switch (model.arch) {
+@@ -7927,34 +8009,34 @@ static bool llm_load_tensors(
+             case LLM_ARCH_GRANITE:
+             case LLM_ARCH_GRANITE_MOE:
+                 {
+-                    model.tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
++                    model.tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0, MOCK_MAIN_TYPE);
+ 
+                     // output
+-                    model.output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
+-                    model.output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, llama_model_loader::TENSOR_NOT_REQUIRED);
++                    model.output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0, GGML_TYPE_F32);
++                    model.output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, llama_model_loader::TENSOR_NOT_REQUIRED, MOCK_MAIN_TYPE);
+ 
+                     // if output is NULL, init from the input tok embed
+                     if (model.output == NULL) {
+-                        model.output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, llama_model_loader::TENSOR_DUPLICATED);
++                        model.output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, llama_model_loader::TENSOR_DUPLICATED, MOCK_MAIN_TYPE);
+                     }
+ 
+                     for (int i = 0; i < n_layer; ++i) {
+                         auto & layer = model.layers[i];
+ 
+-                        layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
++                        layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0, GGML_TYPE_F32);
+ 
+-                        layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd_head_k * n_head}, 0);
+-                        layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_k_gqa}, 0);
+-                        layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_v_gqa}, 0);
+-                        layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_k * n_head, n_embd}, 0);
++                        layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd_head_k * n_head}, 0, MOCK_MAIN_TYPE);
++                        layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_k_gqa}, 0, MOCK_MAIN_TYPE);
++                        layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_v_gqa}, 0, MOCK_MAIN_TYPE);
++                        layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_k * n_head, n_embd}, 0, MOCK_MAIN_TYPE);
+ 
+                         // optional bias tensors
+-                        layer.bq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "bias", i), {n_embd},     llama_model_loader::TENSOR_NOT_REQUIRED);
+-                        layer.bk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "bias", i), {n_embd_gqa}, llama_model_loader::TENSOR_NOT_REQUIRED);
+-                        layer.bv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "bias", i), {n_embd_gqa}, llama_model_loader::TENSOR_NOT_REQUIRED);
+-                        layer.bo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "bias", i), {n_embd},     llama_model_loader::TENSOR_NOT_REQUIRED);
++                        layer.bq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "bias", i), {n_embd},     llama_model_loader::TENSOR_NOT_REQUIRED, GGML_TYPE_F32);
++                        layer.bk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "bias", i), {n_embd_gqa}, llama_model_loader::TENSOR_NOT_REQUIRED, GGML_TYPE_F32);
++                        layer.bv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "bias", i), {n_embd_gqa}, llama_model_loader::TENSOR_NOT_REQUIRED, GGML_TYPE_F32);
++                        layer.bo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "bias", i), {n_embd},     llama_model_loader::TENSOR_NOT_REQUIRED, GGML_TYPE_F32);
+ 
+-                        layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
++                        layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0, GGML_TYPE_F32);
+ 
+                         if (hparams.rope_scaling_type_train == LLAMA_ROPE_SCALING_TYPE_LONGROPE) {
+                             layer.rope_long  = create_tensor(tn(LLM_TENSOR_ROPE_FACTORS_LONG,  "weight", i), {n_rot/2}, llama_model_loader::TENSOR_NOT_REQUIRED | (i != 0 ? llama_model_loader::TENSOR_DUPLICATED : 0));
+@@ -7965,14 +8047,14 @@ static bool llm_load_tensors(
+                         }
+ 
+                         if (n_expert == 0) {
+-                            layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
+-                            layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
+-                            layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
++                            layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0, MOCK_MAIN_TYPE);
++                            layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0, MOCK_MAIN_TYPE);
++                            layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0, MOCK_MAIN_TYPE);
+ 
+                             // optional MLP bias
+-                            layer.ffn_gate_b = create_tensor(tn(LLM_TENSOR_FFN_GATE, "bias", i), {n_ff}, llama_model_loader::TENSOR_NOT_REQUIRED);
+-                            layer.ffn_down_b = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "bias", i), {n_embd}, llama_model_loader::TENSOR_NOT_REQUIRED);
+-                            layer.ffn_up_b   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "bias", i), {n_ff}, llama_model_loader::TENSOR_NOT_REQUIRED);
++                            layer.ffn_gate_b = create_tensor(tn(LLM_TENSOR_FFN_GATE, "bias", i), {n_ff}, llama_model_loader::TENSOR_NOT_REQUIRED, GGML_TYPE_F32);
++                            layer.ffn_down_b = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "bias", i), {n_embd}, llama_model_loader::TENSOR_NOT_REQUIRED, GGML_TYPE_F32);
++                            layer.ffn_up_b   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "bias", i), {n_ff}, llama_model_loader::TENSOR_NOT_REQUIRED, GGML_TYPE_F32);
+                         } else {
+                             layer.ffn_gate_inp  = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", i), {n_embd, n_expert}, 0);
+                             layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd,   n_ff, n_expert}, llama_model_loader::TENSOR_NOT_REQUIRED);
+@@ -8493,36 +8575,36 @@ static bool llm_load_tensors(
+             case LLM_ARCH_QWEN2:
+             case LLM_ARCH_QWEN2VL:
+                 {
+-                    model.tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
++                    model.tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0, MOCK_MAIN_TYPE);
+ 
+                     // output
+-                    model.output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
+-                    model.output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, llama_model_loader::TENSOR_NOT_REQUIRED);
++                    model.output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0, GGML_TYPE_F32);
++                    model.output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, llama_model_loader::TENSOR_NOT_REQUIRED, MOCK_MAIN_TYPE);
+                     // if output is NULL, init from the input tok embed
+                     if (model.output == NULL) {
+-                        model.output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, llama_model_loader::TENSOR_DUPLICATED);
++                        model.output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, llama_model_loader::TENSOR_DUPLICATED, MOCK_MAIN_TYPE);
+                     }
+ 
+                     for (int i = 0; i < n_layer; ++i) {
+                         auto & layer = model.layers[i];
+ 
+-                        layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
++                        layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0, GGML_TYPE_F32);
+ 
+-                        layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd}, 0);
+-                        layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_gqa}, 0);
+-                        layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_gqa}, 0);
+-                        layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd, n_embd}, 0);
++                        layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd}, 0, MOCK_MAIN_TYPE);
++                        layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_gqa}, 0, MOCK_MAIN_TYPE);
++                        layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_gqa}, 0, MOCK_MAIN_TYPE);
++                        layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd, n_embd}, 0, MOCK_MAIN_TYPE);
+ 
+                         // optional bias tensors
+-                        layer.bq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "bias", i), {n_embd}, 0);
+-                        layer.bk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "bias", i), {n_embd_gqa}, 0);
+-                        layer.bv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "bias", i), {n_embd_gqa}, 0);
++                        layer.bq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "bias", i), {n_embd}, 0, GGML_TYPE_F32);
++                        layer.bk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "bias", i), {n_embd_gqa}, 0, GGML_TYPE_F32);
++                        layer.bv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "bias", i), {n_embd_gqa}, 0, GGML_TYPE_F32);
+ 
+-                        layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
++                        layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0, GGML_TYPE_F32);
+ 
+-                        layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
+-                        layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
+-                        layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
++                        layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0, MOCK_MAIN_TYPE);
++                        layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0, MOCK_MAIN_TYPE);
++                        layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0, MOCK_MAIN_TYPE);
+                     }
+                 } break;
+             case LLM_ARCH_QWEN2MOE:

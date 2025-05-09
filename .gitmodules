@@ -1,0 +1,9 @@
+[submodule "third_party/marlin"]
+	path = third_party/marlin
+	url = git@github.com:IST-DASLab/marlin.git
+[submodule "third_party/vllm"]
+	path = third_party/vllm
+	url = git@github.com:vllm-project/vllm.git
+[submodule "third_party/llama.cpp"]
+	path = third_party/llama.cpp
+	url = git@github.com:ggml-org/llama.cpp.git

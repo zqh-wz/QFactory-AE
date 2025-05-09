@@ -1,0 +1,17 @@
+diff --git a/marlin/marlin_cuda_kernel.cu b/marlin/marlin_cuda_kernel.cu
+index ae4cef5..ebbb9f2 100644
+--- a/marlin/marlin_cuda_kernel.cu
++++ b/marlin/marlin_cuda_kernel.cu
+@@ -71,9 +71,9 @@ __device__ inline void cp_async4_stream(void* smem_ptr, const void* glob_ptr) {
+   uint32_t smem = static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr));
+   asm volatile(
+     "{\n"
+-    "   .reg .b64 p;\n"
+-    "   createpolicy.fractional.L2::evict_first.b64 p, 1.0;"
+-    "   cp.async.cg.shared.global.L2::cache_hint [%0], [%1], %2, p;\n"
++    // "   .reg .b64 p;\n"
++    // "   createpolicy.fractional.L2::evict_first.b64 p, 1.0;"
++    "   cp.async.cg.shared.global [%0], [%1], %2;\n"
+     "}\n" :: "r"(smem), "l"(glob_ptr), "n"(BYTES)
+   );
+ }
