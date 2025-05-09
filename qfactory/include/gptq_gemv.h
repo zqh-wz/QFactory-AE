@@ -123,11 +123,13 @@ __global__ void kernel_gptq(
             }
         }
     } else {
+        #pragma unroll
         for (int i = 0; i < BLOCK_N; i++) {
             half2 in_thread_C_local[M];
             for (int b = 0; b < M; b++)
                 in_thread_C_local[b] = __float2half2_rn(0.0);
             int8_t *B_cur = B + i * (K / PACK_FACTOR);
+            #pragma unroll
             for (int j = 0; j < num_iters_per_row; j++) {
                 bool last_iter = (j == num_iters_per_row - 1);
                 for (int b = 0; b < M; b++)
