@@ -6,7 +6,7 @@ uv pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # Install Marlin
 cd third_party/marlin
-TORCH_CUDA_ARCH_LIST="8.0" uv pip install . -i https://pypi.tuna.tsinghua.edu.cn/simple --no-build-isolation
+TORCH_CUDA_ARCH_LIST="9.0a" uv pip install . -i https://pypi.tuna.tsinghua.edu.cn/simple --no-build-isolation
 cd ../..
 
 # Install QFactory
