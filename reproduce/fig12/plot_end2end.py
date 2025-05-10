@@ -33,11 +33,11 @@ def plot(data):
     speedup_llama_cpp_4bit = data['llama_cpp:4'] / data['qfactory:4']
     speedup_vllm_4bit = data['vllm:4'] / data['qfactory:4']
     speedup_bitblas_4bit = data['bitblas:4'] / data['qfactory:4']
-    speedup_qfactory_4bit = numpy.ones(len(models))
+    speedup_qfactory_4bit = numpy.ones(len(models) - 1)
 
     speedup_llama_cpp_2bit = data['llama_cpp:2'] / data['qfactory:2']
     speedup_bitblas_2bit = data['bitblas:2'] / data['qfactory:2']
-    speedup_qfactory_2bit = numpy.ones(len(models))
+    speedup_qfactory_2bit = numpy.ones(len(models) - 1)
 
     plt.rcParams.update({'font.size': 8})
 
@@ -68,7 +68,7 @@ def plot(data):
     ax2.bar(x[1:], speedup_bitblas_2bit, width, label='BitBLAS', color='#78D3AC')
     ax2.bar(x[1:] + width, speedup_qfactory_2bit, width, label='QFactory', color='#EF7F51')
     for i, v in zip(x[1:], speedup_qfactory_2bit):
-        ax2.text(i, v + 0.05, f"({data['qfactory:2'][i]:.1f})", ha='center', fontsize=6, rotation=30)
+        ax2.text(i, v + 0.05, f"({data['qfactory:2'][i - 1]:.1f})", ha='center', fontsize=6, rotation=30)
     ax2.text(0, 0.1, 'N/A', ha='center', fontsize=8, color='tab:red', weight='bold')
 
     ax2.set_xticks(x)
